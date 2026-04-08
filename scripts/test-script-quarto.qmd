@@ -1,0 +1,57 @@
+---
+title: "Untitled"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    number-sections: true
+bibliography: references.bib
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+## Testing out Quarto and Rmarkdown syntax
+
+- we can make *bullet points*
+- can describe what you've done
+- etc.
+
+1.  can also number items
+2.  like **this**
+
+[@carbons2023] And can add citations too. Could change to View in Editor Mode and click insert\>citation.
+
+## Now try creating and running some code chunks
+
+```{r}
+x <- 4 * 8
+
+hights_ft <- c(5.2, 6.0, 5.7)
+
+coef <- 3.14
+```
+
+```{r}
+y <- x^2*coef*hights_ft
+print(y)
+```
+

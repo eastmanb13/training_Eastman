@@ -1,0 +1,59 @@
+---
+title: "Untitled"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    number-sections: true
+bibliography: references.bib
+---
+
+# Introduction
+
+## About the data
+
+text
+
+# Setup
+## Read in data
+
+```{r load packages}
+#| warning: false
+#| message: false
+library(readr)
+library(here)
+```
+
+```{r read in data}
+#| message: false
+bg_chem <- read_csv(here('data','BGchem2008data.csv'))
+```
+
+```{r view data properties}
+#| eval: false
+#| echo: false
+colnames(bg_chem)
+str(bg_chem)
+head(bg_chem)
+summary(bg_chem)
+```
+
+# Analysis
+## Summary statistics
+```{r}
+nitrate <- mean(bg_chem$NO3)
+nitrite <- mean(bg_chem$NO2)
+amm     <- mean(bg_chem$NH4)
+phos    <- mean(bg_chem$P)
+```
+
+## Redfield Ratio
+```{r}
+ratio <- (nitrate + nitrite + amm) / phos
+```
+The Redfield ratio for this dataset is approximately `{r} round(ratio)`.
+
+## Plot
+```{r}
+plot(bg_chem$P, bg_chem$NO2 + bg_chem$NO3 + bg_chem$NH4)
+```
