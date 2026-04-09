@@ -1,0 +1,176 @@
+---
+title: "Untitled"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    number-sections: true
+bibliography: references.bib
+---
+# Clean and Wrangle Data
+## Setup
+
+```{r load packages}
+library(dplyr)
+library(tidyr)
+library(readr)
+```
+
+## source data 
+
+```{r read in data}
+#| message: false
+catch_original <- read_csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/df35b.302.1")
+
+```
+
+```{r view data}
+colnames(catch_original)
+head(catch_original)
+summary(catch_original)
+glimpse(catch_original)
+```
+
+### clean and reshape data
+Remove last two columns of totals and notes
+```{r tidy data}
+catch_data <- catch_original %>%
+    select(-All, -notesRegCode)
+
+```
+
+Correct error in Chinook column ("I" should be "1") and convert to numeric
+```{r}
+catch_clean <- catch_data %>%
+    mutate(Chinook = if_else(
+        Chinook == "I",
+        "1",
+        Chinook),
+    Chinook = as.numeric(Chinook))
+```
+
+Tidy data to make it long form and not wide format
+```{r}
+catch_long <- catch_clean %>%
+    pivot_longer(col = -c(Region, Year),
+        names_to = "species",
+        values_to = "catch_thousands"
+    )
+```
+
+And to do the reverse (go from long to wide)
+```{r}
+catch_wide <- catch_long %>%
+    pivot_wider(names_from = species,
+        values_from = catch_thousands,
+        values_fill = 0)
+
+# Check the result
+head(catch_wide)
+```
+
+```{r}
+catch_long <- catch_long %>%
+    # Convert to actual fish numbers
+    dplyr::mutate(catch = catch_thousands * 1000) %>% 
+    # Remove the superseded column
+    dplyr::select(-catch_thousands)
+```
+
+```{r}
+unique(catch_long$Region)
+```
+
+```{r}
+mean_region <- catch_long %>%
+    # Group by region
+    dplyr::group_by(Region) %>%
+    # Calculate averages within the established groups
+    dplyr::summarize(mean_catch = mean(catch, na.rm = TRUE),
+        .groups = "drop")
+
+# Check the result
+dplyr::glimpse(mean_region)
+```
+
+```{r}
+n_region <- catch_long %>%
+    dplyr::group_by(Region) %>%
+    # Count rows per region
+    dplyr::summarize(count = dplyr::n(), 
+        .groups = "drop")
+
+# Check the result
+head(n_region)
+```
+
+```{r}
+sse_catch <- catch_long %>%
+    dplyr::filter(Region == "SSE")
+
+# Check the result
+unique(sse_catch$Region) 
+```
+
+```{r}
+mean_region <- catch_long %>%
+    ### Summarize by region
+    dplyr::group_by(Region) %>%
+    dplyr::summarize(mean_catch = mean(catch, na.rm = T),
+        .groups = "drop") %>%
+    ### Order by the mean catch
+    dplyr::arrange(mean_catch)
+
+# Check the result
+head(mean_region)
+```
+
+```{r}
+mean_region <- catch_long %>%
+    # Summarize by region
+    dplyr::group_by(Region) %>%
+    dplyr::summarize(mean_catch = mean(catch, na.rm = T),
+        .groups = "drop") %>%
+    # Order by descending mean catch
+    dplyr::arrange(dplyr::desc(mean_catch))
+
+# Check the result
+head(mean_region)
+```
+
+
+### practice splitting and combining columns
+split columns
+```{r}
+sites_df <- data.frame(site = c("HAW-101", "HAW-103", "OAH-320", "OAH-219", "MAU-039"))
+
+# Check that out
+head(sites_df)
+```
+
+```{r}
+# Split site by the dash between the site letters and its code
+sites_df %>%
+    tidyr::separate_wider_delim(cols = site, delim = "-",
+        names = c("island", "site_number"), cols_remove = F)
+```
+
+unite columns
+```{r}
+dates_df <- data.frame(
+    year  = rep(x = "1930", times = 3),
+    month = rep(x = "12",   times = 3),
+    day   = 14:16)
+
+# Check that
+dates_df
+```
+
+```{r}
+# Combine those columns into a single 'date' column
+dates_df %>%
+    tidyr::unite(col = date, 
+        year, month, day,
+        sep = "-", 
+        remove = F)
+```
