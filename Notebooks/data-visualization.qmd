@@ -172,4 +172,23 @@ datatable(
 )
 ```
 
+```{r}
+## Interactive map
+
+# make one row per location for map purposes of mapping locations
+restoration_sites <- delta_visits_raw %>%
+  janitor::clean_names() %>%
+  distinct(restore_loc = eco_restore_approximate_location,
+           latitude, longitude) %>%
+  drop_na(latitude, longitude)
+
+# map them!
+leaflet(restoration_sites) %>%
+  addTiles() %>%
+  addMarkers(
+    lng   = ~longitude,
+    lat   = ~latitude,
+    popup = ~restore_loc
+  )
+```
 
