@@ -16,6 +16,9 @@ library(janitor)
 library(ggplot2) # this is the package for data visualization
 
 library(plotly) # this is the package for interactive data viz
+
+library(DT)
+library(leaflet)
 ```
 
 ## Load the data
@@ -149,6 +152,24 @@ facet_plot
 
 ```{r}
 ggplotly(facet_plot, tooltip = c("x","y"))
+```
+
+
+## Making interactive data tables, visualizations
+
+```{r}
+datatable(delta_visits)
+```
+
+```{r}
+## Interactive Table with custimizations
+
+datatable(
+  daily_visits_loc,
+  caption  = "Daily visitor counts at Delta restoration sites",
+  colnames = c("Location", "Date", "Visitor type", "Daily visits"),
+  options  = list(pageLength = 10)
+)
 ```
 
 
