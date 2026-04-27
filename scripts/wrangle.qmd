@@ -167,6 +167,7 @@ dates_df
 ```
 
 ```{r}
+#| label: unite
 # Combine those columns into a single 'date' column
 dates_df %>%
     tidyr::unite(col = date, 
