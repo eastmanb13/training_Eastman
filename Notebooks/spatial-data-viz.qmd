@@ -1,0 +1,210 @@
+---
+title: "Working with Vector Spatial Data in R"
+author: "ME!"
+format: html
+---
+
+## Setup
+### Download data
+```{r}
+out_dir <- here::here('data/ak_regions')
+
+if(!dir.exists(out_dir)) {
+    knb_url <- "https://dev.nceas.ucsb.edu/knb/d1/mn/v2/object/urn%3Auuid%3Aaceaecb2-1ce0-4d41-a839-d3607d32bb58"
+
+    download.file(url = knb_url, 
+                  destfile = 'shapefile_demo_data.zip', 
+                  mode = 'wb')
+
+    unzip('shapefile_demo_data.zip', exdir = out_dir)
+
+    file.remove('shapefile_demo_data.zip')
+}
+```
+
+### Load packages
+```{r}
+#| message: false
+#| warning: false
+
+### Data wrangling packages:
+library(readr)
+library(dplyr)
+library(tidyr)
+library(here)
+
+### Simple Features vector spatial data:
+library(sf)
+
+### Data visualization packages:
+library(ggplot2)
+library(leaflet)
+library(scales)
+library(ggspatial)
+```
+
+
+## Data Exploration
+### Read in Data
+```{r}
+ak_rgns_sf <- read_sf(here("data/ak_regions/ak_regions_simp.shp"))
+
+#sf means simple features to know it is not just a data frame but, in this case, a shapefile
+
+```
+
+### Transform projection (ESPG code) for better visualization of Alaska
+
+```{r}
+ak_rgns_3338_sf <- ak_rgns_sf %>%
+    st_transform(crs = 3338)
+
+# st_crs(ak_rgns_3338_sf) ### run in console to check
+```
+
+
+```{r}
+#| eval: false
+
+### Quick Views of data
+
+# for more information about your file, can run these in the console
+# class(ak_rgns_3338_sf)
+# can see that there is a data.frame class which allows us to play with it and analyze/manipulate using tidyverse
+# head(ak_rgns_3338_sf)
+# glimpse(ak_rgns_3338_sf)
+```
+
+### Spatial Joins
+Suppose you ask the question: how many people live in each of these regions in Alaska?
+
+#### download the population data
+
+```{r}
+out_file <- here::here('data/alaska_population.csv')
+
+if(!file.exists(out_file)) {
+    pop_data_url <- "https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A7fc6f6db-c5ea-426a-a743-1f2edafb43b8"
+
+    download.file(url = pop_data_url, 
+                  destfile = out_file, 
+                  mode = 'w')
+}
+```
+
+#### read in population data
+
+```{r}
+pop_df <- read_csv(here("data/alaska_population.csv")) %>%
+    filter(Year == 2015) %>%
+    select(city, lat, lng, population = total) %>%
+    drop_na()
+
+# now convert pop_df from dataframe to a sf
+# note that because it is in lat/long, need to read in as crs 4326 which is the underlying lat long projection. Later, can transform to other projection.
+
+pop_4326_sf <- st_as_sf(pop_df,
+                        coords = c('lng', 'lat'),
+                        crs = 4326,
+                        remove = FALSE)
+```
+
+#### Join population and region data
+
+```{r}
+# first transform population data to same CRS as the AK region data, 3338
+pop_3338_sf <- st_transform(pop_4326_sf, 
+                            crs = 3338)
+
+# then we can join the two
+pop_joined_sf <- st_join(pop_3338_sf, 
+                         ak_rgns_3338_sf, 
+                         join = st_within)
+
+ak_rgns_joined_sf <- st_join(ak_rgns_3338_sf,
+                             pop_3338_sf,
+                             join = st_within)
+```
+
+
+## Analysis
+### calculate total population by region
+
+```{r}
+pop_rgn_df <- pop_joined_sf %>%
+    st_drop_geometry() %>%
+    group_by(region) %>%
+    summarize(total_pop = sum(population))
+```
+
+
+
+## Visualization
+
+### Map population by region
+
+```{r}
+# join total population by region with ak shapefile to map population by region
+pop_rgn_3338_sf <- left_join(ak_rgns_3338_sf, 
+                             pop_rgn_df, 
+                             by = "region")
+
+### plot to check
+plot(pop_rgn_3338_sf["total_pop"])
+```
+
+### Dissolve geometries to map by management area
+
+```{r}
+pop_mgmt_3338_sf <- pop_rgn_3338_sf %>%
+    group_by(mgmt_area) %>%
+    summarize(total_pop = sum(total_pop))
+
+plot(pop_mgmt_3338_sf["total_pop"])
+```
+
+```{r}
+#| eval: false
+# save to your files
+write_sf(pop_rgn_3338_sf, here("data/ak_regions_population.gpkg"))
+```
+
+### Mapping using ggplot2
+```{r}
+ggplot(pop_rgn_3338_sf) +
+    geom_sf(aes(fill = total_pop)) +
+    labs(fill = "Total Population") +
+    scale_fill_continuous(low = "khaki", high =  "firebrick",
+                          labels = comma, name = "Population") +
+    theme_bw()
+```
+
+#### Add rivers, cities data to map
+##### Read in rivers data
+```{r}
+rivers_3338_sf <- read_sf(here("data/ak_regions/ak_rivers_simp.shp"))
+```
+
+#### Map it!
+
+```{r}
+# note: order matters here. what you put first will be on the bottom.
+ggplot() +
+    geom_sf(data = pop_rgn_3338_sf, 
+            mapping = aes(fill = total_pop)) +
+    geom_sf(data = rivers_3338_sf,
+            aes(linewidth = StrOrder),
+            color = 'blue', alpha = .5) +
+    scale_linewidth(range = c(0.05, 0.5),
+                    guide = "none") +
+    geom_sf(data = pop_3338_sf, size = 0.5, color = 'grey20') +
+    labs(title = "Total Population by Alaska Region",
+         fill = "Total Population") +
+    scale_fill_continuous(low = "khaki",
+                          high =  "firebrick",
+                          labels = comma) +
+    theme_bw() 
+```
+
+
+
