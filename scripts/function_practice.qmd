@@ -1,0 +1,171 @@
+---
+title: "Function practice"
+author: "BrookeE"
+format: html
+---
+
+## Setup
+### Load packages
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(purrr) ### for iteration using the map() family of functions
+
+library(palmerpenguins)
+```
+
+### simple function anatomy
+```{r}
+airtemps <- c(212, 30.3, 78, 32)
+celsius1 <- (airtemps[1] - 32) * 5/9
+celsius2 <- (airtemps[2] - 32) * 5/9
+celsius3 <- (airtemps[3] - 33) * 5/9   ### repeating calculations can inadvertently introduce errors. Better to use a function.
+
+### write function that converts fahrenheit temp to celsius
+convert_f_to_c <- function(fahr) {
+    celsius <- (fahr - 32) * 5/9
+    return(celsius)
+}
+celsius1a <- convert_f_to_c(fahr = airtemps, scale = 'c')
+```
+
+### a little more complex
+```{r}
+### now create a function that will convert either way, user describes F or C
+convert_temp <- function(t, scale = 'f') {  ### scale = 'f' tells function that if user doesn't include scale, assume it is f
+    scale = tolower(substr(scale, 1,1))   ### this allows fahrenheit or celsius to be entered in function and it will extract the first letter to work with the function
+
+    if(!scale %in% c('c','f')) {  
+        stop('Scale must be either "c" or "f"!')  ### this creates a custom error for users to see if they don't write c or f
+    }
+        if(scale == 'c') {
+        result <- (t * 9/5) + 32
+    } else {
+        result <- (t-32) * 5/9
+    }
+    return(result)
+}
+
+convert_temp(t = airtemps, scale = 'celsius')
+```
+
+#### thinking about what returns and in what format
+```{r}
+### for more complex returns, can choose how it is returned.
+### like in a data frame:
+convert_f_to_c_k <- function(f) {
+  c <- (f - 32) * 5/9
+  k  <- c + 273.15
+  out_df <- data.frame(fahr = f, celsius = c, kelvin = k)
+  return(out_df)
+}
+
+temps_df <- convert_f_to_c_k(seq(-100, 100, 50))
+temps_df
+```
+
+
+```{r}
+### or you may want to return a list
+convert_f_to_c_k <- function(f) {
+  c <- (f - 32) * 5/9
+  k  <- c + 273.15
+  out_list <- list(fahr = f, celsius = c, kelvin = k)
+  return(out_list)   ### even without writing this, R will return the last line in the function (in this case, out_list)
+                     ### and everything after the return line will be ignored
+}
+
+temps_list <- convert_f_to_c_k(seq(-100, 100, 50))
+temps_list
+```
+
+
+### Using purrr and interating functions across vectors or df
+
+```{r}
+library(palmerpenguins)
+data(penguins)
+spp_vec <- unique(penguins$species)
+
+calc_bill_model <- function(spp, df) {
+    spp_df <- df %>%
+        filter(species == spp)
+    bill_mdl <- lm(bill_length_mm ~ bill_depth_mm, data = spp_df)
+    return(bill_mdl)
+}
+map_results <- purrr::map(.x = spp_vec, .f = calc_bill_model, df = penguins)
+broom::tidy(map_results[[3]])
+# you can do the same exact thing as above (purrr) with base r code:
+lapply_results <- base::lapply(X = spp_vec, FUN = calc_bill_model, df = penguins)
+broom::tidy(lapply_results[[3]])
+```
+
+### Functions are great for creating plots and plot themes too
+
+```{r}
+custom_theme <- function(base_size = 9) {
+  theme(
+    text             = element_text(family = "serif",
+                                    color  = "slateblue4",
+                                    size   = base_size),
+    plot.title       = element_text(size   = rel(1.25),
+                                    hjust  = 0.5,
+                                    face   = "bold"),
+    panel.background = element_rect(color = 'slateblue3',
+                                    fill  = 'azure'),
+    panel.grid.major = element_line(color    = "slateblue1",
+                                    linewidth = 0.25),
+    legend.position  = c(.9, .4),
+    axis.ticks       = element_line(color = 'red')
+  )
+}
+
+#### and you can go further to put the plot creation in a function
+scatterplot <- function(df, point_size = 2, font_size = 9) {
+  ggplot(data = df, mapping = aes(x = fahr, y = celsius, color = kelvin)) +
+    geom_point(size = point_size) +
+    scale_color_viridis_c() +
+    custom_theme(font_size)
+}
+
+scatterplot(temps_df, point_size = 3, font_size = 16) +
+  labs(title = 'Temperature Conversions')
+```
+
+## Documenting Functions
+Well-named functions are a start, but good documentation tells collaborators (and future you) what a function expects and what it returns. The example below uses the roxygen2 (document generation) package syntax and example to package your function with a help doc for R that will return with this useful information for users.
+
+```{r}
+#' Convert temperature from Fahrenheit to Celsius
+#'
+#' @param fahr Numeric value or vector in degrees Fahrenheit
+#'
+#' @returns Numeric value or vector in degrees Celsius
+#' @export
+#'
+#' @examples
+#' convert_f_to_c(32)
+#' convert_f_to_c(c(32, 212, 72))
+convert_f_to_c <- function(fahr) {
+  celsius <- (fahr - 32) * 5/9
+  return(celsius)
+}
+```
+
+## Test your new knowledge
+Write a function that takes salmon length, in inches, and returns the corresponding weight, in pounds. The simple model is 
+; for Chinook salmon, let’s use W=aL^b and (for inches to pounds). Give it a name that indicates the purpose of the function. For testing purposes, a 30” salmon should be about 11 lb; a 42” salmon is about 27 lb; and a 60” is about 82 lb.
+
+```{r}
+convert_l_to_wt <- function(L) {
+    a <- 0.00057
+    b <- 2.9  ### inches to pounds
+    salmon_length <- a * (L^b)
+    return(salmon_length)
+}
+
+salmon_weight <- c(30, 42, 60)
+convert_l_to_wt(L=salmon_weight)
+```

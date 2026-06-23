@@ -1,0 +1,297 @@
+---
+title: "data-access"
+format: html
+---
+
+# R programmatic data access
+
+## Cache/Check
+See if a data file exists. If it does, use it. If it does not, dowload it to a defined data directory.
+
+```{r}
+# Set paths
+yolo_catch_url <- "https://pasta.lternet.edu/package/data/eml/edi/233/2/015e494911cf35c90089ced5a3127334"
+data_dir <- "data"
+yolo_catch_file <- file.path(data_dir, "yolo_catch.csv")
+
+# Download data if not already cached
+if (!file.exists(yolo_catch_file)) {
+  message("Downloading file...")
+  dir.create(data_dir, showWarnings = FALSE, recursive = TRUE)
+  download.file(
+    url = yolo_catch_url,
+    destfile = yolo_catch_file
+  )
+  message("Saved to: ", yolo_catch_file)
+} else {
+  message("Using cached file.")
+}
+
+# Load the (locally cached) data
+yolo_catch <- readr::read_csv(yolo_catch_file, guess_max = 100000)
+head(yolo_catch)
+```
+
+### Notes on rds vs csv
+If you’re caching an R data frame (rather than a raw file), prefer RDS format over CSV:
+
+Saves the data frame with its types preserved
+saveRDS(my_data, "data/my_data.rds")
+
+Restores the data frame exactly, keeping dates as dates and factors as factors
+my_data <- readRDS("data/my_data.rds")
+
+CSV loses column type information (dates become character strings, and you have to re-specify types every time you load). RDS is faster to read and write, and perfectly reconstructs the original object.
+
+## Practice API data access with USGS water monitoring data
+```{r}
+# Get all stream gauge stations in California
+ca_streams <- read_waterdata_monitoring_location(
+  state_name = "California",
+  site_type = "Stream"
+)
+```
+
+### Further filter data to a smaller spatial area
+```{r}
+# Build a bounding box for a region of interest, then filter spatially
+delta_bbox <- sf::st_bbox(c(xmin = -122.1, ymin = 37.8,
+                            xmax = -121.2, ymax = 38.5),
+                          crs = sf::st_crs(4326))
+delta_sites <- sf::st_filter(ca_streams, sf::st_as_sfc(delta_bbox))
+
+# How many stations?
+nrow(delta_sites)
+
+# Preview results (geometry column is retained automatically)
+delta_sites |>
+  select(monitoring_location_id, monitoring_location_name) |>
+  head(10)
+```
+
+### map the Freeport station
+```{r}
+options(tigris_use_cache = TRUE)
+
+# Station of interest (already an sf object from delta_sites)
+freeport <- delta_sites |>
+  filter(monitoring_location_id == "USGS-11447650")
+
+# Compute map extent: ±0.35° around the station
+lon <- as.numeric(sf::st_coordinates(freeport)[1, "X"])
+lat <- as.numeric(sf::st_coordinates(freeport)[1, "Y"])
+buf <- 0.35
+map_xlim <- c(lon - buf, lon + buf)
+map_ylim <- c(lat - buf, lat + buf)
+
+# Find counties intersecting the visual extent
+vis_rect <- sf::st_sfc(
+  sf::st_polygon(list(matrix(c(
+    map_xlim[1], map_ylim[1], map_xlim[2], map_ylim[1],
+    map_xlim[2], map_ylim[2], map_xlim[1], map_ylim[2],
+    map_xlim[1], map_ylim[1]
+  ), ncol = 2, byrow = TRUE))),
+  crs = sf::st_crs(4326)
+)
+all_ca <- counties(state = "CA", year = 2022, progress_bar = FALSE)
+area_counties <- sf::st_filter(all_ca,
+    sf::st_transform(vis_rect, sf::st_crs(all_ca)))
+
+# Water-body polygons for those counties
+area_water_sf <- map(area_counties$NAME,
+    ~area_water("CA", county = .x, year = 2022)) |>
+  bind_rows()
+
+# Extract Freeport station coordinates for the text label (avoids
+# geom_sf_text CRS warning)
+site_coords <- as.data.frame(sf::st_coordinates(freeport))
+
+ggplot() +
+  geom_sf(data = area_counties, fill = "#f5f0e8",
+          color = "gray60", linewidth = 0.3) +
+  geom_sf(data = area_water_sf, fill = "#a6cee3",
+          color = "#6baed6", linewidth = 0.1) +
+  geom_sf(data = freeport, color = "#e31a1c",
+          size = 4, shape = 21, fill = "#e31a1c") +
+  geom_text(data = site_coords,
+            aes(x = X, y = Y, label = "Freeport\n(11447650)"),
+            nudge_x = 0.05, hjust = 0, size = 2.8) +
+  coord_sf(xlim = map_xlim, ylim = map_ylim, expand = FALSE) +
+  labs(title = "Sacramento River at Freeport (USGS 11447650)",
+       x = NULL,
+       y = NULL) +
+  theme_light() +
+  theme(panel.background = element_rect(fill = "#e8f4f8"))
+```
+
+### explore data availability
+
+```{r}
+# What data does Freeport have?
+freeport_avail <- read_waterdata_combined_meta(
+  monitoring_location_id = "USGS-11447650"
+)
+
+# Which parameters are available, and for how long?
+freeport_avail |>
+  select(parameter_code, parameter_name, statistic_id, begin, end) |>
+  arrange(parameter_code, statistic_id)
+```
+
+```{r}
+freeport_avail |>
+  filter(parameter_code == "00010") |>
+  count(statistic_id)
+```
+
+
+Although you can manually look up names and descriptions of all possible statistic codes in a browser, you can also retrieve this information directly via the package:
+```{r}
+stat_codes <- read_waterdata_metadata("statistic-codes")
+
+# Show statistic names along with other station availability data
+freeport_avail %>%
+  filter(parameter_code == "00010") %>%
+  select(parameter_code, parameter_name, statistic_id, begin, end) %>%
+  left_join(stat_codes, by = join_by(statistic_id == statistic_code)) %>%
+  select(-statistic_description) %>%
+  relocate(statistic_name, .after = statistic_id) %>%
+  arrange(parameter_code, statistic_id)
+```
+
+read_waterdata_daily() retrieves daily values. We pass parameter_code = "00010" to select water temperature and statistic_id = "00003" to select the daily mean, and wrap the call in our caching pattern:
+
+```{r}
+freeport_temp_file <- "data/freeport_temp.rds"
+
+if (!file.exists(freeport_temp_file)) {
+  message("Fetching daily temperature from USGS...")
+  freeport_temp <- read_waterdata_daily(
+    monitoring_location_id = "USGS-11447650",  # note "USGS-" prefix
+    parameter_code = "00010",  # water temperature
+    statistic_id = "00003",  # daily mean
+    time = c("2020-01-01", "2023-12-31")
+  )
+  dir.create("data", showWarnings = FALSE)
+  saveRDS(freeport_temp, freeport_temp_file)
+} else {
+  freeport_temp <- readRDS(freeport_temp_file)
+}
+
+glimpse(freeport_temp)
+```
+
+### visualize the data
+
+```{r}
+ggplot(freeport_temp, aes(x = time, y = value)) +
+  geom_line(color = "#e34a33", alpha = 0.6, linewidth = 0.3) +
+  labs(
+    x = NULL,
+    y = "Temperature (°C)",
+    title = "Daily Mean Water Temperature at the Sacramento River near Freeport",
+    subtitle = "USGS Station 11447650 (2020-2023)"
+  ) +
+  theme_light()
+```
+
+```{r}
+freeport_temp |>
+  mutate(month = month(time, label = TRUE)) |>
+  ggplot(aes(x = month, y = value)) +
+  geom_boxplot(fill = "#8abcfd", outlier.alpha = 0.2, outlier.size = 0.5) +
+  labs(
+    x = "Month",
+    y = "Temperature (°C)",
+    title = "Seasonal Temperature Distribution",
+    subtitle = "Sacramento River near Freeport (2020-2023)"
+  ) +
+  theme_light()
+```
+
+### fetching multiple parameters at once
+
+```{r}
+multi <- read_waterdata_daily(
+  monitoring_location_id = "USGS-11447650",
+  parameter_code = c("00010", "00060", "80154"),  # temp, discharge, susp sedmnt conc
+  statistic_id = "00003",  # daily mean for all three
+  time = c("2020-01-01", "2023-12-31")
+)
+
+# Plot time series faceted by parameter
+multi %>%
+  ggplot(aes(x = time, y = value, col = parameter_code)) +
+  geom_line() +
+  facet_wrap(~parameter_code, scales = "free_y", ncol = 1)
+```
+
+### other potentially useful data sources that can be pulled in
+dataRetrieval also connects to the Water Quality Portal, which aggregates data from USGS, EPA, and over 400 state and local agencies. Use readWQPdata() to query this broader dataset:
+```{r}
+# Water quality data from all agencies at a USGS site
+wq <- readWQPdata(
+  siteid = "USGS-11447650",
+  characteristicName = "Turbidity"
+)
+```
+
+
+
+### Activity: Retrieve and visualize water data
+Working individually or in pairs (10 min), choose one of the following:
+
+#### Option A: Different station: 
+Retrieve daily mean water temperature (parameter_code = "00010", statistic_id = "00003") for one of these other nearby stations and compare the seasonal pattern with Freeport. Is the annual cycle the same shape? Earlier or later in the year?
+
+San Joaquin River at Vernalis: USGS-11303500
+Cache Slough near Ryer Island: USGS-11455385
+Sacramento River at Rio Vista: USGS-11455420
+
+```{r}
+# What data does Rio Vista have?
+riovista_avail <- read_waterdata_combined_meta(
+  monitoring_location_id = "USGS-11455420"
+)
+
+# Which parameters are available, and for how long?
+riovista_avail |>
+  select(parameter_code, parameter_name, statistic_id, begin, end) |>
+  arrange(parameter_code, statistic_id)
+
+riovista_avail |>
+  filter(parameter_code == "00010") |>
+  count(statistic_id)
+
+```
+
+```{r}
+riovista_temp_file <- "data/riovista_temp.rds"
+
+if (!file.exists(riovista_temp_file)) {
+  message("Fetching daily temperature from USGS...")
+  riovista_temp <- read_waterdata_daily(
+    monitoring_location_id = "USGS-11455420",  # note "USGS-" prefix
+    parameter_code = "00010",  # water temperature
+    statistic_id = "00003",  # daily mean
+    time = c("2020-01-01", "2023-12-31")
+  )
+  dir.create("data", showWarnings = FALSE)
+  saveRDS(riovista_temp, riovista_temp_file)
+} else {
+  riovista_temp <- readRDS(riovista_temp_file)
+}
+
+glimpse(riovista_temp)
+```
+
+#### Option B: Different statistic: 
+At Freeport (USGS-11447650), retrieve the daily maximum (statistic_id = "00001") and daily minimum ("00002") temperature in addition to the mean. Plot all three on one time series. How wide is the daily range? Does it vary by season?
+
+#### Option C: Temperature vs. discharge: 
+Retrieve both daily mean temperature (00010) and daily mean suspended sediment concentration (80154) at Freeport. Make a scatter plot. Is there a clear relationship? What might you look at next?
+
+Include the cache pattern in your code so it only downloads once!
+
+
+
