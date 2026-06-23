@@ -1,0 +1,12 @@
+---
+title: "Branch Practice doc"
+format: html
+---
+
+Typing something just to add something new to a branch.
+
+Practicing creating branches.
+
+I created a branch by clicking the ellipses by "CHANGES" in the source control panel, going to Branch menu and selecting New Branch.
+
+
